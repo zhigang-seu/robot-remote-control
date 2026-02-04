@@ -19,11 +19,12 @@ conda activate teleop_lxk
 pip install booster-robotics-sdk-python (adjust based on actual SDK name)
 # Project Structure
 booster_robotics_sdk-main/example/low_level/
-├── b1_robot_controller2.py  
-├── vr_hand.py              
-├── t1_7dof_arm_ik2.py    
-├── change_mode.py         
-└── assets/                 
+
+├── b1_robot_controller2.py  # Main robot controller (arm motion control)
+├── vr_hand.py               # VR hand grip control (dexterous hand)
+├── t1_7dof_arm_ik2.py       # 7DOF arm IK solver
+├── change_mode.py           # Robot mode control (provided in operation flow)
+└── assets/                  # URDF and mesh files for robot model
     └── T1_7DofArm_Serial.urdf
 # Teleoperation Workflow
 1. Navigate to Project Directory
