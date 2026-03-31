@@ -17,7 +17,7 @@ def generate_launch_description():
             name='arm_bridge',
             output='screen',
             parameters=[{
-                'rate_hz': 300.0,
+                'rate_hz': 200.0,
                 'simulation_mode': False,
                 'use_ik': True,
                 'go_home_duration_s': 5.0,
@@ -34,7 +34,7 @@ def generate_launch_description():
             executable='hand_bridge_node',
             name='hand_bridge',
             output='screen',
-            parameters=[{'rate_hz': 300.0, 'grab_threshold': 0.5, 'vr_topic_qos_depth': 1}],
+            parameters=[{'rate_hz': 200.0, 'grab_threshold': 0.5, 'vr_topic_qos_depth': 1}],
         ),
         Node(
             package='booster_lerobot_bridge',
