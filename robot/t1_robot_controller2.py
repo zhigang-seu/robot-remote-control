@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pinocchio as pin
 import threading
@@ -113,6 +114,7 @@ class VRController:
         }
         self.msg_queue = Queue()
         self.buffer = ""
+        self.state_lock = threading.Lock()
         
     def connect_vr(self):
         try:
@@ -164,67 +166,68 @@ class VRController:
             self.buffer = self.buffer[end+1:]
             try:
                 json_data = json.loads(json_str)
+                who = json_data.get("who", "")
                 if who in ["left", "right"]:
                     self.msg_queue.put(json_str)
             except json.JSONDecodeError:
                 print(f"Invalid JSON data filtered: {json_str[:50]}...")
+
+    def update_hand_state(self, json_data, hand_side):
+        x = json_data.get("x", 0.0)
+        y = json_data.get("y", 0.0)
+        z = json_data.get("z", 0.0)
+        roll_deg = json_data.get("roll", 0.0)
+        pitch_deg = json_data.get("pitch", 0.0)
+        yaw_deg = json_data.get("yaw", 0.0)
+
+        roll = math.radians(roll_deg)
+        pitch = math.radians(pitch_deg)
+        yaw = math.radians(yaw_deg)
+        rot_matrix_pin = pin.rpy.rpyToMatrix(roll, pitch, yaw)
+
+        rot_y_neg90 = pin.rpy.rpyToMatrix(0.0, -math.pi / 2.0, 0.0)
+
+        if hand_side == "right":
+            rot_x = pin.rpy.rpyToMatrix(math.pi / 2.0, 0.0, 0.0)
+            rot_compensated = rot_matrix_pin @ rot_y_neg90 @ rot_x
+            rpy_normalized = pin.rpy.matrixToRpy(rot_compensated)
+            pos = [
+                self.right_initial_pos[0] + x / self.scaling,
+                self.right_initial_pos[1] + y / self.scaling,
+                self.right_initial_pos[2] + z / self.scaling,
+            ]
+            rpy = [float(rpy_normalized[0]), float(rpy_normalized[1]), float(rpy_normalized[2])]
+        else:
+            rot_x = pin.rpy.rpyToMatrix(-math.pi / 2.0, 0.0, 0.0)
+            rot_compensated = rot_matrix_pin @ rot_y_neg90 @ rot_x
+            rpy_normalized = pin.rpy.matrixToRpy(rot_compensated)
+            pos = [
+                self.left_initial_pos[0] + x / self.scaling,
+                self.left_initial_pos[1] + y / self.scaling,
+                self.left_initial_pos[2] + z / self.scaling,
+            ]
+            rpy = [float(rpy_normalized[0]), float(rpy_normalized[1]), float(rpy_normalized[2])]
+
+        with self.state_lock:
+            self.current_state[hand_side]["position"] = pos
+            self.current_state[hand_side]["rpy"] = rpy
+
+    def get_current_vr_targets(self):
+        with self.state_lock:
+            left_pos = list(self.current_state.get("left", {}).get("position", self.left_initial_pos))
+            left_rpy = list(self.current_state.get("left", {}).get("rpy", [-1.57, -1.57, 0.0]))
+            right_pos = list(self.current_state.get("right", {}).get("position", self.right_initial_pos))
+            right_rpy = list(self.current_state.get("right", {}).get("rpy", [1.57, -1.57, 0.0]))
+        return left_pos, left_rpy, right_pos, right_rpy
+
+    def solve_from_current_state(self):
+        left_pos, left_rpy, right_pos, right_rpy = self.get_current_vr_targets()
+        return self.calculate_target_arm_joints(left_pos, left_rpy, right_pos, right_rpy)
         
     def process_hand_data(self, json_data, hand_side):
         try:
-            import math
-            x = json_data.get("x", 0.0)
-            y = json_data.get("y", 0.0)
-            z = json_data.get("z", 0.0)
-            roll_deg = json_data.get("roll", 0.0)   
-            pitch_deg = json_data.get("pitch", 0.0)  
-            yaw_deg = json_data.get("yaw", 0.0)     
-            roll = math.radians(roll_deg)
-            pitch = math.radians(pitch_deg)
-            yaw = math.radians(yaw_deg)
-            rot_matrix_pin = pin.rpy.rpyToMatrix(roll, pitch, yaw)
-            # right
-            rot_y_neg90_rad = -math.pi / 2.0
-            rot_y_neg90 = pin.rpy.rpyToMatrix(0.0, rot_y_neg90_rad, 0.0)
-            rot_x_pos90_rad = math.pi / 2.0
-            rot_x_pos90 = pin.rpy.rpyToMatrix(rot_x_pos90_rad, 0.0, 0.0)
-            rot_compensated = rot_matrix_pin @ rot_y_neg90 @ rot_x_pos90
-            rpy_normalized = pin.rpy.matrixToRpy(rot_compensated)
-            zyx_x = float(rpy_normalized[0]) 
-            zyx_y = float(rpy_normalized[1]) 
-            zyx_z = float(rpy_normalized[2]) 
-            # left
-            l_rot_y_neg90_rad = -math.pi / 2.0
-            l_rot_y_neg90 = pin.rpy.rpyToMatrix(0.0, l_rot_y_neg90_rad, 0.0)
-            l_rot_x_pos90_rad = -math.pi / 2.0
-            l_rot_x_pos90 = pin.rpy.rpyToMatrix(l_rot_x_pos90_rad, 0.0, 0.0)
-            l_rot_compensated = rot_matrix_pin @ l_rot_y_neg90 @ l_rot_x_pos90
-            l_rpy_normalized = pin.rpy.matrixToRpy(l_rot_compensated)
-            l_zyx_x = float(l_rpy_normalized[0]) 
-            l_zyx_y = float(l_rpy_normalized[1]) 
-            l_zyx_z = float(l_rpy_normalized[2]) 
-            if hand_side == "right":
-                t_rx = self.right_initial_pos[0] + x / self.scaling
-                t_ry = self.right_initial_pos[1] + y / self.scaling
-                t_rz = self.right_initial_pos[2] + z / self.scaling
-                right_pos = [t_rx, t_ry, t_rz]
-                right_rpy = [zyx_x, zyx_y, zyx_z]
-                self.current_state["right"]["position"] = right_pos
-                self.current_state["right"]["rpy"] = right_rpy
-    
-            else:  # left
-                t_lx = self.left_initial_pos[0] + x / self.scaling
-                t_ly = self.left_initial_pos[1] + y / self.scaling
-                t_lz = self.left_initial_pos[2] + z / self.scaling
-                left_pos = [t_lx, t_ly, t_lz]
-                left_rpy = [l_zyx_x, l_zyx_y, l_zyx_z]
-                self.current_state["left"]["position"] = left_pos
-                self.current_state["left"]["rpy"] = left_rpy
-            left_pos = self.current_state.get("left", {}).get("position", self.left_initial_pos)
-            left_rpy = self.current_state.get("left", {}).get("rpy", [-1.57, -1.57, 0.0])
-            right_pos = self.current_state.get("right", {}).get("position", self.right_initial_pos)
-            right_rpy = self.current_state.get("right", {}).get("rpy", [1.57, -1.57, 0.0])
-            target_arm_joints = self.calculate_target_arm_joints(left_pos, left_rpy, right_pos, right_rpy)
-            return target_arm_joints
+            self.update_hand_state(json_data, hand_side)
+            return self.solve_from_current_state()
         except Exception as e:
             print(f"Error processing controller data: {e}")
             import traceback
@@ -292,8 +295,16 @@ class B1RobotController:
         self.control_mode = control_mode
         self.control_dt = CONTROL_DT
         self.q_target = np.zeros(B1_JOINT_CNT)
+        self.HOME0 = np.array([
+            0.00, 0.80,                     
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  
+            0.0,                        
+            -0.1, 0.0, 0.0, 0.2, 0.104, 0.098, 
+            -0.1, 0.0, 0.0, 0.2, 0.104, 0.098 
+        ])
         self.FIXED_HOME_POSITION = np.array([
-            0.00, 0.00,                     
+            0.00, 0.80,                     
             0.1207, -1.3649,  -0.0025, -1.5215, -0.2081, -0.1417, 0.0086, 
             0.1207, 1.3649,  -0.0025, 1.5215, -0.2081, 0.1417, 0.0086,  
             0.0,                        
@@ -442,6 +453,8 @@ class B1RobotController:
                 self.motor_cmds[idx].kp = self.kp_data[idx]
                 self.motor_cmds[idx].kd = self.kd_data[idx]
                 self.motor_cmds[idx].tau = 0.0  
+                self.motor_cmds[idx].weight = self.weight
+            #print(self.current_jpos_des)
             self.low_cmd = LowCmd()  
             self.low_cmd.cmd_type = self.control_mode  
             self.low_cmd.motor_cmd = self.motor_cmds  
@@ -491,13 +504,27 @@ class B1RobotController:
             arm_q[7 + i] = full_q[B1JointIndex.RIGHT_SHOULDER_PITCH + i]
         return arm_q
 
-    # Return to home position
-    def go_home(self, duration=10.0):
-        logger.info(f"Robot returning to fixed home position, duration: {duration} seconds...")
-        home_positions = self.FIXED_HOME_POSITION.copy()
-        self.ctrl_all_joints(home_positions)
+    def _move_to_pose_blocking(self, target_positions, duration=10.0, pose_name="target pose"):
+        logger.info(f"Robot moving to {pose_name}, duration: {duration} seconds...")
+        self.ctrl_all_joints(np.array(target_positions).copy())
         time.sleep(duration)
-        print("Reached fixed home position")
+        print(f"Reached {pose_name}")
+
+    # Return to home0 position
+    def go_home0(self, duration=10.0):
+        self._move_to_pose_blocking(
+            self.HOME0,
+            duration=duration,
+            pose_name="home0 position"
+        )
+
+    # Return to fixed home position
+    def go_home(self, duration=10.0):
+        self._move_to_pose_blocking(
+            self.FIXED_HOME_POSITION,
+            duration=duration,
+            pose_name="fixed home position"
+        )
     
     def start_control(self):
         logger.info("Starting control...")
