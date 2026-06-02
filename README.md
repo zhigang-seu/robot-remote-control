@@ -39,6 +39,7 @@ python3 vr_hand.py 127.0.0.1
 5. Start Teleoperation
 
 ##########################################################################
+
 #数据集采集（按顺序执行）
 开机，192.168.10.101无线连运控板，密码123456
 #cssh（时间戳对齐）
@@ -76,16 +77,17 @@ python3 change_mode.py 127.0.0.1
 打开pico头显进入遥操作环境
 终端1：
 ros2 launch booster_lerobot_bridge bringup.launch.py
-5s内！：
 
 终端3：
-输入mc进入自定义模式
-等机器人到达home位！
+输入mw进入行走模式
 
 终端2：
+ros2 service call /arm_bridge/enable std_srvs/srv/Trigger#开启使能
+ros2 service call /arm_bridge/go_home std_srvs/srv/Trigger#进入home位
 ros2 service call /start_episode std_srvs/srv/Trigger#开始录制
 同时开始遥操作完成抓取
 ros2 service call /save_episode std_srvs/srv/Trigger#录完保存
+
 ##########################################################################
 
 #测试话题正常
