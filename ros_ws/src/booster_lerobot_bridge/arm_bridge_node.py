@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""ROS2 bridge for mw-mode upper-body teleoperation.
+
+This node intentionally controls only the robot upper body. In mw/walking mode,
+locomotion keeps ownership of the legs while t1_robot_controller2_walking_upperbody
+opens UpperBodyCustomControl and streams arm targets through the SDK low-level
+joint control channel.
+"""
+
 import json
 import threading
 import time
@@ -27,32 +35,38 @@ class ArmBridgeNode(Node):
         self.declare_parameter('use_ik', True)
         self.declare_parameter('go_home_duration_s', 5.0)
         self.declare_parameter('auto_enable', False)
+        self.declare_parameter('network_interface', '')
+        self.declare_parameter('upper_body_only', True)
 
+        # In mw mode this delay means: after enable, optionally delay before
+        # moving only the upper body to the fixed arm home. No leg home is used.
         self.declare_parameter('startup_go_home', False)
-        self.declare_parameter('startup_home0_delay_s', 10.0)
-        self.declare_parameter('startup_fixed_home_delay_s', 5.0)
+        self.declare_parameter('startup_home_delay_s', 2.0)
         self.declare_parameter('ik_rate_hz', 60.0)
         self.declare_parameter('vr_topic_qos_depth', 1)
 
         add_sdk_paths()
-        from t1_robot_controller2 import B1RobotController  # type: ignore
+        from t1_robot_controller2_walking_upperbody import B1RobotController  # type: ignore
 
         self.rate_hz = float(self.get_parameter('rate_hz').value)
         simulation_mode = bool(self.get_parameter('simulation_mode').value)
         use_ik = bool(self.get_parameter('use_ik').value)
         self.go_home_duration_s = float(self.get_parameter('go_home_duration_s').value)
         auto_enable = bool(self.get_parameter('auto_enable').value)
+        network_interface = str(self.get_parameter('network_interface').value).strip()
+        upper_body_only = bool(self.get_parameter('upper_body_only').value)
 
         self.startup_go_home = bool(self.get_parameter('startup_go_home').value)
-        self.startup_home0_delay_s = float(self.get_parameter('startup_home0_delay_s').value)
-        self.startup_fixed_home_delay_s = float(self.get_parameter('startup_fixed_home_delay_s').value)
+        self.startup_home_delay_s = float(self.get_parameter('startup_home_delay_s').value)
         self.ik_rate_hz = float(self.get_parameter('ik_rate_hz').value)
         self.vr_topic_qos_depth = int(self.get_parameter('vr_topic_qos_depth').value)
 
         self.controller = B1RobotController(
+            network_interface=network_interface,
             simulation_mode=simulation_mode,
             use_ik=use_ik,
             visualize_ik=False,
+            upper_body_only=upper_body_only,
         )
 
         self.enabled = False
@@ -62,7 +76,7 @@ class ArmBridgeNode(Node):
 
         self.last_action = np.asarray(
             self.controller.get_current_arm_joint_angles(),
-            dtype=np.float32
+            dtype=np.float32,
         )
 
         self.pub_action = self.create_publisher(JointState, '/teleop/arm_action', 10)
@@ -91,17 +105,18 @@ class ArmBridgeNode(Node):
 
         if self.startup_go_home:
             self.startup_go_home_timer = self.create_timer(
-                self.startup_home0_delay_s,
-                self.startup_go_home_cb
+                self.startup_home_delay_s,
+                self.startup_go_home_cb,
             )
 
         self.get_logger().info(
-            'arm_bridge started; '
+            'mw arm_bridge started; '
             f'rate_hz={self.rate_hz}, '
             f'auto_enable={auto_enable}, '
+            f'network_interface={network_interface or "<sdk default>"}, '
+            f'upper_body_only={upper_body_only}, '
             f'startup_go_home={self.startup_go_home}, '
-            f'startup_home0_delay_s={self.startup_home0_delay_s}, '
-            f'startup_fixed_home_delay_s={self.startup_fixed_home_delay_s}, '
+            f'startup_home_delay_s={self.startup_home_delay_s}, '
             f'ik_rate_hz={self.ik_rate_hz}, '
             f'vr_topic_qos_depth={self.vr_topic_qos_depth}'
         )
@@ -116,15 +131,15 @@ class ArmBridgeNode(Node):
         if self.enabled:
             return
 
-        self.get_logger().info('Starting arm control weight ramp...')
+        self.get_logger().info('Starting mw upper-body control weight ramp...')
         self.controller.start_control()
 
         self.enabled = True
         self.last_action = np.asarray(
             self.controller.get_current_arm_joint_angles(),
-            dtype=np.float32
+            dtype=np.float32,
         )
-        self.get_logger().info('Arm bridge enabled')
+        self.get_logger().info('mw upper-body arm bridge enabled')
 
     def disable_robot(self):
         if not self.enabled:
@@ -132,7 +147,13 @@ class ArmBridgeNode(Node):
 
         self.controller.stop_control()
         self.enabled = False
-        self.get_logger().info('Arm bridge disabled')
+        self.get_logger().info('mw upper-body arm bridge disabled')
+
+    def _controller_upper_body_home(self):
+        if hasattr(self.controller, 'go_upper_body_home'):
+            self.controller.go_upper_body_home(duration=self.go_home_duration_s)
+        else:
+            self.controller.go_home(duration=self.go_home_duration_s)
 
     def do_go_home(self):
         if not self.enabled:
@@ -144,47 +165,19 @@ class ArmBridgeNode(Node):
 
         self.go_home_running = True
         try:
-            self.get_logger().info('Moving robot to fixed home pose...')
-            self.controller.go_home(duration=self.go_home_duration_s)
+            self.get_logger().info('Moving upper body to fixed arm home pose...')
+            self._controller_upper_body_home()
             self.last_action = np.asarray(
                 self.controller.get_current_arm_joint_angles(),
-                dtype=np.float32
+                dtype=np.float32,
             )
-            self.get_logger().info('go_home finished')
+            self.get_logger().info('upper-body go_home finished')
         finally:
             self.go_home_running = False
 
     def do_startup_home_sequence(self):
-        if not self.enabled:
-            raise RuntimeError('arm is not enabled')
-
-        if self.go_home_running:
-            self.get_logger().warn('startup home sequence already running')
-            return
-
-        self.go_home_running = True
-        try:
-            self.get_logger().info('startup sequence step1: moving to home0...')
-            self.controller.go_home0(duration=self.go_home_duration_s)
-            self.last_action = np.asarray(
-                self.controller.get_current_arm_joint_angles(),
-                dtype=np.float32
-            )
-
-            self.get_logger().info(
-                f'startup sequence waiting {self.startup_fixed_home_delay_s} seconds before fixed home...'
-            )
-            time.sleep(self.startup_fixed_home_delay_s)
-
-            self.get_logger().info('startup sequence step2: moving to FIXED_HOME_POSITION...')
-            self.controller.go_home(duration=self.go_home_duration_s)
-            self.last_action = np.asarray(
-                self.controller.get_current_arm_joint_angles(),
-                dtype=np.float32
-            )
-            self.get_logger().info('startup home sequence finished')
-        finally:
-            self.go_home_running = False
+        # mw mode: never call go_home0(), because locomotion owns all lower-body joints.
+        self.do_go_home()
 
     def _do_go_home_background(self):
         try:
@@ -196,7 +189,7 @@ class ArmBridgeNode(Node):
         try:
             self.do_startup_home_sequence()
         except Exception as exc:
-            self.get_logger().error(f'startup home sequence failed: {exc}')
+            self.get_logger().error(f'startup upper-body home failed: {exc}')
 
     def startup_go_home_cb(self):
         if self.startup_go_home_done:
@@ -206,7 +199,7 @@ class ArmBridgeNode(Node):
             return
 
         if not self.enabled:
-            self.get_logger().info('startup home sequence waiting for arm enable...')
+            self.get_logger().info('startup upper-body home waiting for arm enable...')
             return
 
         self.startup_go_home_done = True
@@ -214,14 +207,14 @@ class ArmBridgeNode(Node):
         if self.startup_go_home_timer is not None:
             self.startup_go_home_timer.cancel()
 
-        self.get_logger().info('startup home sequence triggered')
+        self.get_logger().info('startup upper-body home triggered')
         threading.Thread(target=self._do_startup_home_sequence_background, daemon=True).start()
 
     def enable_cb(self, request, response):
         try:
             self.enable_robot()
             response.success = True
-            response.message = 'arm enabled'
+            response.message = 'mw upper-body arm enabled'
         except Exception as exc:
             response.success = False
             response.message = str(exc)
@@ -231,7 +224,7 @@ class ArmBridgeNode(Node):
         try:
             self.disable_robot()
             response.success = True
-            response.message = 'arm disabled'
+            response.message = 'mw upper-body arm disabled'
         except Exception as exc:
             response.success = False
             response.message = str(exc)
@@ -251,7 +244,7 @@ class ArmBridgeNode(Node):
 
             threading.Thread(target=self._do_go_home_background, daemon=True).start()
             response.success = True
-            response.message = 'go_home started in background'
+            response.message = 'upper-body go_home started in background'
         except Exception as exc:
             response.success = False
             response.message = str(exc)
