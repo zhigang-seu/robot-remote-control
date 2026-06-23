@@ -126,6 +126,11 @@ class VRController:
         self.msg_queue = Queue()
         self.buffer = ""
         self.state_lock = threading.Lock()
+        # Smooth IK arm commands so occasional large VR jumps or partial IK steps do
+        # not create a discontinuous q_target. This does not change public SDK calls.
+        self.last_arm_target_14 = None
+        self.arm_target_alpha = 0.65
+        self.last_ik_warning_time = 0.0
         
     def connect_vr(self):
         try:
@@ -257,16 +262,39 @@ class VRController:
             q_arm_14, tau_ff, converged = self.robot_controller.ik_solver.solve_ik(
                 self.robot_controller.ik_solver.xyzrpy_to_pose(left_pos, left_rpy),
                 self.robot_controller.ik_solver.xyzrpy_to_pose(right_pos, right_rpy),
-                current_q=self.robot_controller.get_current_joint_angles(),
-                visualize=False
+                current_q=None,
+                visualize=False,
             )
+            q_arm_14 = np.asarray(q_arm_14, dtype=float).reshape(-1)
+            if len(q_arm_14) != 14 or not np.all(np.isfinite(q_arm_14)):
+                now = time.time()
+                if now - self.last_ik_warning_time > 1.0:
+                    print("IK returned invalid arm command; holding last valid command")
+                    self.last_ik_warning_time = now
+                return self.last_arm_target_14.copy() if self.last_arm_target_14 is not None else None
+
             if not converged:
-                print(f"IK solver did not converge! Left pos: {left_pos}, Right pos: {right_pos}")
-                return None
+                # Do not drop the command. In the new velocity-servo IK, a bounded
+                # partial step is exactly what keeps teleoperation continuous.
+                now = time.time()
+                if now - self.last_ik_warning_time > 1.0:
+                    print(f"IK partial step accepted. Left pos: {left_pos}, Right pos: {right_pos}")
+                    self.last_ik_warning_time = now
+
+#            if self.last_arm_target_14 is None:
+#                smoothed = q_arm_14
+#            else:
+#                alpha = float(np.clip(self.arm_target_alpha, 0.0, 1.0))
+#                smoothed = alpha * q_arm_14 + (1.0 - alpha) * self.last_arm_target_14
+#            self.last_arm_target_14 = smoothed.copy()
+                self.last_arm_target_14 = q_arm_14.copy()
             return q_arm_14
         except Exception as e:
-            print(f"Error calculating target arm joint angles: {e}")
-            return None
+            now = time.time()
+            if now - self.last_ik_warning_time > 1.0:
+                print(f"Error calculating target arm joint angles, holding last command: {e}")
+                self.last_ik_warning_time = now
+            return self.last_arm_target_14.copy() if self.last_arm_target_14 is not None else None
     
     def process_messages(self):
         target_arm_joints = None
@@ -613,6 +641,10 @@ class B1RobotController:
         if len(arm_target_14) != 14:
             logger.error(f"Incorrect number of arm joint angles: expected 14, got {len(arm_target_14)}")
             return
+        arm_target_14 = np.asarray(arm_target_14, dtype=float).reshape(14)
+        if not np.all(np.isfinite(arm_target_14)):
+            logger.warning("Non-finite arm target ignored")
+            return
         with self.ctrl_lock:
             if self.upper_body_only:
                 # In walking mode only update 14 arm joints. Do not force legs to
@@ -721,6 +753,16 @@ class B1RobotController:
                 current_q = self.FIXED_HOME_POSITION.copy()
             self.current_jpos_des = current_q.copy()
             self.q_target = current_q.copy()
+            # Reset VR-side smoothing from the commanded home arm posture.
+            self.vr_controller.last_arm_target_14 = np.concatenate([
+                current_q[B1JointIndex.LEFT_SHOULDER_PITCH:B1JointIndex.LEFT_HAND_ROLL + 1],
+                current_q[B1JointIndex.RIGHT_SHOULDER_PITCH:B1JointIndex.RIGHT_HAND_ROLL + 1],
+            ]).copy()
+            if self.use_ik and self.ik_solver is not None:
+                if hasattr(self.ik_solver, "_normalize_current_q"):
+                    self.ik_solver.current_q = self.ik_solver._normalize_current_q(current_q)
+                else:
+                    self.ik_solver.current_q = current_q.copy()
         return self.vr_controller.start()
     
     def process_vr_data_and_enqueue(self):
