@@ -9,7 +9,8 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
+import queue
+import threading
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
@@ -124,6 +125,11 @@ class StreamingEpisodeVideoWriter:
         self.width = None
         self.height = None
         self.codec_name = None
+ 
+        self.frame_queue = queue.Queue(maxsize=1000) 
+        self.running = True
+        self.write_thread = threading.Thread(target=self._writer_loop, daemon=True)
+        self.write_thread.start()
 
     def _build_writer(self, width: int, height: int):
         codec_candidates = [
@@ -145,20 +151,40 @@ class StreamingEpisodeVideoWriter:
                 writer.release()
         raise RuntimeError('failed to open cv2.VideoWriter for mp4 output')
 
+    def _writer_loop(self):
+      
+        while self.running or not self.frame_queue.empty():
+            try:
+              
+                rgb = self.frame_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            height, width, _ = rgb.shape
+            if self.writer is None:
+                self._build_writer(width, height)
+                
+            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            self.writer.write(bgr)
+            self.frame_queue.task_done()
+
     def write_rgb(self, rgb: np.ndarray):
+   
         if rgb.ndim != 3 or rgb.shape[2] != 3:
             raise ValueError(f'expected RGB image [H,W,3], got shape={rgb.shape}')
-        height, width, _ = rgb.shape
-        if self.writer is None:
-            self._build_writer(width, height)
-        if width != self.width or height != self.height:
-            raise ValueError(
-                f'image size changed during recording: got {(height, width)} expected {(self.height, self.width)}'
-            )
-        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-        self.writer.write(bgr)
+        
+        try:
+         
+            self.frame_queue.put_nowait(rgb)
+        except queue.Full:
+            print("[WARN] Video encoding is too slow, dropping frame!")
 
     def close(self):
+     
+        self.running = False
+        if self.write_thread.is_alive():
+            self.write_thread.join()
+            
         if self.writer is not None:
             self.writer.release()
             self.writer = None
@@ -795,7 +821,7 @@ class LeRobotRecorderNode(Node):
         image_ns = self.stamp_ns(image_msg)
 
         if self.last_recorded_image_ns is not None:
-            if image_ns - self.last_recorded_image_ns < self.frame_period_ns:
+            if image_ns - self.last_recorded_image_ns < self.frame_period_ns * 0.85:
                 self.dropped_fps += 1
                 return
 
