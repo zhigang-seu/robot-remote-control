@@ -1,0 +1,354 @@
+{
+  "robot": {
+    "urdf_path": "urdf/T1_7DofArm_Serial.urdf",
+    "mesh_dir": ".",
+    "control_dt": 0.002,
+    "sdk_cmd_type": "PARALLEL",
+    "network_interface": "127.0.0.1",
+    "simulation_mode": false,
+    "use_upper_body_custom_control": true,
+    "handoff_max_error_rad": 0.15,
+    "handoff_max_velocity_rad_s": 0.5,
+    "joint_count": 29,
+    "upper_body_indices": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "lower_body_indices": [
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28
+    ],
+    "arm_indices": {
+      "left": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "right": [
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    },
+    "urdf_joint_names": {
+      "left": [
+        "Left_Shoulder_Pitch",
+        "Left_Shoulder_Roll",
+        "Left_Elbow_Pitch",
+        "Left_Elbow_Yaw",
+        "Left_Wrist_Pitch",
+        "Left_Wrist_Yaw",
+        "Left_Hand_Roll"
+      ],
+      "right": [
+        "Right_Shoulder_Pitch",
+        "Right_Shoulder_Roll",
+        "Right_Elbow_Pitch",
+        "Right_Elbow_Yaw",
+        "Right_Wrist_Pitch",
+        "Right_Wrist_Yaw",
+        "Right_Hand_Roll"
+      ]
+    },
+    "payload_target_joint": {
+      "left": "Left_Hand_Roll",
+      "right": "Right_Hand_Roll"
+    },
+    "home_q29": [
+      0.0,
+      0.8,
+      0.1207,
+      -1.3649,
+      -0.0025,
+      -1.5215,
+      -0.2081,
+      -0.1417,
+      0.0086,
+      0.1207,
+      1.3649,
+      -0.0025,
+      1.5215,
+      -0.2081,
+      0.1417,
+      0.0086,
+      0.0,
+      -0.1,
+      0.0,
+      0.0,
+      0.2,
+      0.104,
+      0.098,
+      -0.1,
+      0.0,
+      0.0,
+      0.2,
+      0.104,
+      0.098
+    ],
+    "kp_upper": [
+      5.0,
+      5.0,
+      100.0,
+      100.0,
+      100.0,
+      100.0,
+      80.0,
+      100.0,
+      80.0,
+      100.0,
+      100.0,
+      100.0,
+      100.0,
+      80.0,
+      100.0,
+      80.0,
+      100.0
+    ],
+    "kd_upper": [
+      0.1,
+      0.1,
+      1.7,
+      1.7,
+      1.7,
+      1.7,
+      1.7,
+      1.7,
+      1.7,
+      1.7,
+      1.7,
+      1.7,
+      1.7,
+      1.7,
+      1.7,
+      1.7,
+      5.0
+    ]
+  },
+  "identification": {
+    "side": "left",
+    "include_motor_inertia": true,
+    "friction_sign_smoothing_vel": 0.02,
+    "initial_alpha": [
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8
+    ],
+    "fit_alpha": true,
+    "alpha_bounds": [
+      0.2,
+      1.5
+    ],
+    "ridge_lambda": 1e-08,
+    "qr_tol": 1e-09,
+    "base_rank_max": 80,
+    "zero_column_rel_threshold": 1e-12,
+    "robust_huber_delta": 2.5,
+    "robust_irls_iters": 6,
+    "online_param_set": "base",
+    "payload_param_mode": "pcpdi16",
+    "payload_H_ridge": 1e-07,
+    "fit_virtual_calibration_payload": true,
+    "virtual_calibration_start_fraction": 0.5,
+    "virtual_calibration_ridge_lambda": 1e-07,
+    "torque_filter_cutoff_hz": 12.0,
+    "torque_filter_order": 4
+  },
+  "excitation": {
+    "side": "left",
+    "duration": 12.5,
+    "sample_rate": 100.0,
+    "control_rate": 500.0,
+    "n_harmonics": 5,
+    "base_frequency": 0.08,
+    "random_seed": 1,
+    "random_trials": 350,
+    "local_refine_steps": 120,
+    "range_use_ratio": 0.25,
+    "velocity_limit_rad_s": 0.35,
+    "acceleration_limit_rad_s2": 2.0,
+    "center_q": [
+      0.25,
+      -1.15,
+      0.0,
+      -1.35,
+      -0.15,
+      -0.1,
+      0.0
+    ],
+    "min_q": [
+      -0.6,
+      -1.8,
+      -0.65,
+      -2.0,
+      -0.75,
+      -0.8,
+      -0.6
+    ],
+    "max_q": [
+      0.85,
+      -0.45,
+      0.65,
+      -0.7,
+      0.45,
+      0.55,
+      0.6
+    ],
+    "right_hold_q": [
+      0.1207,
+      1.3649,
+      -0.0025,
+      1.5215,
+      -0.2081,
+      0.1417,
+      0.0086
+    ],
+    "left_hold_q": [
+      0.1207,
+      -1.3649,
+      -0.0025,
+      -1.5215,
+      -0.2081,
+      -0.1417,
+      0.0086
+    ],
+    "center_q_by_side": {
+      "left": [
+        0.25,
+        -1.15,
+        0.0,
+        -1.35,
+        -0.15,
+        -0.1,
+        0.0
+      ],
+      "right": [
+        0.25,
+        1.15,
+        0.0,
+        1.35,
+        -0.15,
+        0.1,
+        0.0
+      ]
+    },
+    "min_q_by_side": {
+      "left": [
+        -0.6,
+        -1.8,
+        -0.65,
+        -2.0,
+        -0.75,
+        -0.8,
+        -0.6
+      ],
+      "right": [
+        -0.6,
+        0.45,
+        -0.65,
+        0.7,
+        -0.75,
+        -0.55,
+        -0.6
+      ]
+    },
+    "max_q_by_side": {
+      "left": [
+        0.85,
+        -0.45,
+        0.65,
+        -0.7,
+        0.45,
+        0.55,
+        0.6
+      ],
+      "right": [
+        0.85,
+        1.8,
+        0.65,
+        2.0,
+        0.45,
+        0.8,
+        0.6
+      ]
+    }
+  },
+  "online": {
+    "method": "momentum_observer",
+    "observer_gain": 20.0,
+    "use_measured_kinematics": true,
+    "use_virtual_calibration": true,
+    "estimate_external_bias": true,
+    "online_qdd_abs_limit_rad_s2": 15.0,
+    "use_commanded_acceleration_in_momentum_mode": false,
+    "estimator_update_period_s": 0.05,
+    "forgetting": 0.99,
+    "p0": 1.0,
+    "process_noise": 0.0,
+    "observation_var": 1.0,
+    "exact_project_period": 100,
+    "mass_min": 0.0,
+    "mass_max": 8.0,
+    "mass_ema_alpha": 0.1,
+    "convergence_mass_std_window": 40,
+    "convergence_mass_std_kg": 0.03,
+    "print_period": 0.0,
+    "placed_detection": {
+      "pickup_mass_kg": 0.08,
+      "drop_mass_kg": 0.05,
+      "placed_mass_fraction": 0.35,
+      "dwell_samples": 25,
+      "slow_velocity_rad_s": 0.08,
+      "slow_acceleration_rad_s2": 0.6
+    }
+  },
+  "teleop": {
+    "payload_monitor_enabled": true,
+    "payload_monitor_sides": [
+      "left",
+      "right"
+    ],
+    "payload_update_period": 0.04,
+    "payload_print_period": 1.0,
+    "payload_models": {
+      "left": "models/left_empty_payload_prior.npz",
+      "right": "models/right_empty_payload_prior.npz"
+    }
+  }
+}
